@@ -15,10 +15,9 @@ export const initializePayment = async ({
   returnUrl,
   description,
 }) => {
-  const response = await axios.post(
-    `${CHAPA_BASE_URL}/transaction/initialize`,
-    {
-      amount,
+  try {
+    const payload = {
+      amount: String(amount),
       currency,
       email,
       first_name: firstName,
@@ -26,27 +25,48 @@ export const initializePayment = async ({
       tx_ref: txRef,
       callback_url: callbackUrl,
       return_url: returnUrl,
-      description,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
-        "Content-Type": "application/json",
+      customization: {
+        title: "Bus Station System",
+        description,
       },
-    }
-  );
-  return response.data;
+    };
+
+    console.log("CHAPA PAYLOAD:", JSON.stringify(payload));
+
+    const response = await axios.post(
+      `${CHAPA_BASE_URL}/transaction/initialize`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("CHAPA RESPONSE:", JSON.stringify(response.data));
+    return response.data;
+
+  } catch (err) {
+    console.error("CHAPA FULL ERROR:", JSON.stringify(err.response?.data));
+    throw new Error(JSON.stringify(err.response?.data) || err.message);
+  }
 };
 
 // Payment verify godhi
 export const verifyPayment = async (txRef) => {
-  const response = await axios.get(
-    `${CHAPA_BASE_URL}/transaction/verify/${txRef}`,
-    {
-      headers: {
-        Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
-      },
-    }
-  );
-  return response.data;
+  try {
+    const response = await axios.get(
+      `${CHAPA_BASE_URL}/transaction/verify/${txRef}`,
+      {
+        headers: {
+          Authorization: `Bearer ${CHAPA_SECRET_KEY}`,
+        },
+      }
+    );
+    return response.data;
+  } catch (err) {
+    console.error("CHAPA VERIFY ERROR:", JSON.stringify(err.response?.data));
+    throw new Error(JSON.stringify(err.response?.data) || err.message);
+  }
 };
