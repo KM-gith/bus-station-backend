@@ -33,8 +33,8 @@ export const initializePayment = async ({
       callback_url: callbackUrl,
       return_url: returnUrl,
       customization: {
-        title: "Bus Station",        // ✅ 16 chars hin caalu
-        description: cleanDescription,
+        title: "Bus Station",
+        description: "Bus ticket",
       },
     };
 
@@ -78,4 +78,3 @@ export const verifyPayment = async (txRef) => {
     throw new Error(JSON.stringify(err.response?.data) || err.message);
   }
 };
-s
