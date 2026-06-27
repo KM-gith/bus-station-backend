@@ -5,6 +5,7 @@ import Schedule from "../models/Schedule.js";
 import User from "../models/User.js";
 import { protect, authorizeRoles } from "../middleware/authMiddleware.js";
 import { sendTicketConfirmationEmail } from "../config/emailService.js";
+import { initializePayment, verifyPayment } from "../config/chapaService.js";
 
 const router = express.Router();
 
@@ -43,9 +44,9 @@ router.get("/", protect, authorizeRoles("admin"), async (req, res) => {
   }
 });
 
-// POST book ticket — passenger
-router.post("/", protect, async (req, res) => {
-  const { scheduleId, seatNumber, paymentMethod, accountNumber } = req.body;
+// POST — Step 1: Payment initialize godhi
+router.post("/initiate-payment", protect, async (req, res) => {
+  const { scheduleId, seatNumber } = req.body;
 
   if (!scheduleId || !seatNumber) {
     return res.status(400).json({ message: "scheduleId and seatNumber are required." });
@@ -68,9 +69,81 @@ router.post("/", protect, async (req, res) => {
     const duplicateTicket = await Ticket.findOne({ passenger: req.user.id, schedule: scheduleId, status: "booked" });
     if (duplicateTicket) return res.status(400).json({ message: "You already have a ticket for this schedule." });
 
+    // Passenger info argadhu
+    const passenger = await User.findById(req.user.id);
+    const nameParts = passenger.name.split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts[1] || nameParts[0];
+
+    // Unique tx_ref uumi
+    const txRef = `BUS-${Date.now()}-${req.user.id}-${scheduleId}-${seatNumber}`;
+
+    // Chapa payment initialize godhi
+    const chapaResponse = await initializePayment({
+      amount: schedule.route.price,
+      currency: "ETB",
+      email: passenger.email,
+      firstName,
+      lastName,
+      txRef,
+      callbackUrl: `${process.env.BACKEND_URL}/tickets/verify-payment`,
+      returnUrl: `${process.env.FRONTEND_URL}/passenger?payment=success&txRef=${txRef}`,
+      description: `Bus ticket: ${schedule.route.origin} → ${schedule.route.destination}`,
+    });
+
+    if (chapaResponse.status !== "success") {
+      return res.status(400).json({ message: "Payment initialization failed." });
+    }
+
+    res.json({
+      checkoutUrl: chapaResponse.data.checkout_url,
+      txRef,
+    });
+
+  } catch (err) {
+    console.error("PAYMENT INIT ERROR:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET — Step 2: Payment verify fi ticket uumi (Chapa callback)
+router.get("/verify-payment", async (req, res) => {
+  const { trx_ref } = req.query;
+
+  if (!trx_ref) {
+    return res.status(400).json({ message: "Transaction reference required." });
+  }
+
+  try {
+    // Chapa irraa verify godhi
+    const verifyResponse = await verifyPayment(trx_ref);
+
+    if (verifyResponse.status !== "success" || verifyResponse.data.status !== "success") {
+      return res.status(400).json({ message: "Payment not verified." });
+    }
+
+    // txRef irraa info parse godhi: BUS-timestamp-userId-scheduleId-seatNumber
+    const parts = trx_ref.split("-");
+    const userId = parts[2];
+    const scheduleId = parts[3];
+    const seatNumber = parseInt(parts[4]);
+
+    // Duplicate check — ticket lammata hin uumnu
+    const existingTicket = await Ticket.findOne({
+      passenger: userId,
+      schedule: scheduleId,
+      status: "booked",
+    });
+    if (existingTicket) {
+      return res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=already_booked`);
+    }
+
+    const schedule = await Schedule.findById(scheduleId).populate("route").populate("bus");
+    const passenger = await User.findById(userId);
+
     // Ticket uumi
     const ticket = await Ticket.create({
-      passenger: req.user.id,
+      passenger: userId,
       schedule: scheduleId,
       seatNumber,
       price: schedule.route.price,
@@ -79,9 +152,8 @@ router.post("/", protect, async (req, res) => {
     // Available seats hir'isi
     await Schedule.updateOne({ _id: scheduleId }, { $inc: { availableSeats: -1 } });
 
-    // ✅ Email ergi
+    // Email ergi
     try {
-      const passenger = await User.findById(req.user.id);
       if (passenger?.email) {
         await sendTicketConfirmationEmail({
           to: passenger.email,
@@ -95,19 +167,20 @@ router.post("/", protect, async (req, res) => {
           departureTime: schedule.departureTime,
           arrivalTime: schedule.arrivalTime,
           price: schedule.route.price,
-          paymentMethod: paymentMethod || "TeleBirr",
-          accountNumber: accountNumber || "N/A",
+          paymentMethod: "Chapa",
+          accountNumber: passenger.email,
         });
       }
     } catch (emailErr) {
       console.error("Email error:", emailErr.message);
-      // Email fail ta'us ticket booking hin dhaabnu
     }
 
-    res.status(201).json(ticket);
+    // Frontend irratti success page deemi
+    res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=success`);
+
   } catch (err) {
-    console.error("TICKET ERROR:", err.name, err.message);
-    res.status(500).json({ message: err.message });
+    console.error("VERIFY ERROR:", err.message);
+    res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=failed`);
   }
 });
 
