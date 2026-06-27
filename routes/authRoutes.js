@@ -7,8 +7,15 @@ const router = express.Router();
 
 // POST /auth/register
 router.post("/register", async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, adminCode } = req.body;
   try {
+    // ✅ Admin secret code check
+    if (role === "admin") {
+      if (!adminCode || adminCode !== process.env.ADMIN_SECRET_CODE) {
+        return res.status(403).json({ message: "Invalid admin code." });
+      }
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "Email already registered." });
