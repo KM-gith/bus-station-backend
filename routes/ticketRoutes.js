@@ -9,6 +9,9 @@ import { initializePayment, verifyPayment } from "../config/chapaService.js";
 
 const router = express.Router();
 
+// Pending payments temporary store (memory)
+const pendingPayments = new Map();
+
 // GET my tickets — passenger
 router.get("/my", protect, async (req, res) => {
   try {
@@ -44,7 +47,7 @@ router.get("/", protect, authorizeRoles("admin"), async (req, res) => {
   }
 });
 
-// POST — Step 1: Payment initialize godhi
+// POST — Payment initialize godhi
 router.post("/initiate-payment", protect, async (req, res) => {
   const { scheduleId, seatNumber } = req.body;
 
@@ -61,34 +64,37 @@ router.post("/initiate-payment", protect, async (req, res) => {
     if (!schedule) return res.status(404).json({ message: "Schedule not found." });
     if (schedule.availableSeats <= 0) return res.status(400).json({ message: "No seats available." });
 
-    // Seat taken check
     const existingSeat = await Ticket.findOne({ schedule: scheduleId, seatNumber, status: "booked" });
     if (existingSeat) return res.status(400).json({ message: "Seat already taken." });
 
-    // Duplicate passenger check
     const duplicateTicket = await Ticket.findOne({ passenger: req.user.id, schedule: scheduleId, status: "booked" });
     if (duplicateTicket) return res.status(400).json({ message: "You already have a ticket for this schedule." });
 
-    // Passenger info argadhu
     const passenger = await User.findById(req.user.id);
-    const nameParts = passenger.name.split(" ");
+    const nameParts = passenger.name.trim().split(" ");
     const firstName = nameParts[0];
     const lastName = nameParts[1] || nameParts[0];
 
-    // Unique tx_ref uumi
-    const txRef = `BUS-${Date.now()}-${req.user.id}-${scheduleId}-${seatNumber}`;
+    // ✅ Short txRef — 50 chars hin caalu
+    const shortTxRef = `BUS-${Date.now()}`.slice(0, 50);
 
-    // Chapa payment initialize godhi
+    // ✅ Pending payment store — scheduleId fi seatNumber save godhi
+    pendingPayments.set(shortTxRef, {
+      userId: req.user.id,
+      scheduleId,
+      seatNumber: parseInt(seatNumber),
+    });
+
     const chapaResponse = await initializePayment({
       amount: schedule.route.price,
       currency: "ETB",
       email: passenger.email,
       firstName,
       lastName,
-      txRef,
+      txRef: shortTxRef,
       callbackUrl: `${process.env.BACKEND_URL}/tickets/verify-payment`,
-      returnUrl: `${process.env.FRONTEND_URL}/passenger?payment=success&txRef=${txRef}`,
-      description: `Bus ticket: ${schedule.route.origin} → ${schedule.route.destination}`,
+      returnUrl: `${process.env.FRONTEND_URL}/passenger?payment=success&txRef=${shortTxRef}`,
+      description: `Bus ticket ${schedule.route.origin} to ${schedule.route.destination}`,
     });
 
     if (chapaResponse.status !== "success") {
@@ -97,7 +103,7 @@ router.post("/initiate-payment", protect, async (req, res) => {
 
     res.json({
       checkoutUrl: chapaResponse.data.checkout_url,
-      txRef,
+      txRef: shortTxRef,
     });
 
   } catch (err) {
@@ -106,35 +112,33 @@ router.post("/initiate-payment", protect, async (req, res) => {
   }
 });
 
-// GET — Step 2: Payment verify fi ticket uumi (Chapa callback)
+// GET — Payment verify fi ticket uumi
 router.get("/verify-payment", async (req, res) => {
   const { trx_ref } = req.query;
 
   if (!trx_ref) {
-    return res.status(400).json({ message: "Transaction reference required." });
+    return res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=failed`);
   }
 
   try {
-    // Chapa irraa verify godhi
     const verifyResponse = await verifyPayment(trx_ref);
 
-    if (verifyResponse.status !== "success" || verifyResponse.data.status !== "success") {
-      return res.status(400).json({ message: "Payment not verified." });
+    if (verifyResponse.status !== "success" || verifyResponse.data?.status !== "success") {
+      return res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=failed`);
     }
 
-    // txRef irraa info parse godhi: BUS-timestamp-userId-scheduleId-seatNumber
-    const parts = trx_ref.split("-");
-    const userId = parts[2];
-    const scheduleId = parts[3];
-    const seatNumber = parseInt(parts[4]);
+    // Pending payment irraa info argadhu
+    const pending = pendingPayments.get(trx_ref);
+    if (!pending) {
+      return res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=failed`);
+    }
 
-    // Duplicate check — ticket lammata hin uumnu
-    const existingTicket = await Ticket.findOne({
-      passenger: userId,
-      schedule: scheduleId,
-      status: "booked",
-    });
+    const { userId, scheduleId, seatNumber } = pending;
+
+    // Duplicate check
+    const existingTicket = await Ticket.findOne({ passenger: userId, schedule: scheduleId, status: "booked" });
     if (existingTicket) {
+      pendingPayments.delete(trx_ref);
       return res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=already_booked`);
     }
 
@@ -149,8 +153,10 @@ router.get("/verify-payment", async (req, res) => {
       price: schedule.route.price,
     });
 
-    // Available seats hir'isi
     await Schedule.updateOne({ _id: scheduleId }, { $inc: { availableSeats: -1 } });
+
+    // Pending irraa haqii
+    pendingPayments.delete(trx_ref);
 
     // Email ergi
     try {
@@ -175,7 +181,6 @@ router.get("/verify-payment", async (req, res) => {
       console.error("Email error:", emailErr.message);
     }
 
-    // Frontend irratti success page deemi
     res.redirect(`${process.env.FRONTEND_URL}/passenger?payment=success`);
 
   } catch (err) {
@@ -184,7 +189,7 @@ router.get("/verify-payment", async (req, res) => {
   }
 });
 
-// PUT cancel ticket — passenger
+// PUT cancel ticket
 router.put("/:id/cancel", protect, async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
@@ -203,3 +208,4 @@ router.put("/:id/cancel", protect, async (req, res) => {
 });
 
 export default router;
+s
