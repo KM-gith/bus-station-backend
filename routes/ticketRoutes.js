@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 import express from "express";
 import Ticket from "../models/Ticket.js";
 import Schedule from "../models/Schedule.js";
+import User from "../models/User.js";
 import { protect, authorizeRoles } from "../middleware/authMiddleware.js";
+import { sendTicketConfirmationEmail } from "../config/emailService.js";
 
 const router = express.Router();
 
@@ -19,9 +21,8 @@ router.get("/my", protect, async (req, res) => {
       });
     res.json(tickets);
   } catch (err) {
-  console.error(err);
-  res.status(500).json({ message: err.message });
-}
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // GET all tickets — admin only
@@ -37,15 +38,14 @@ router.get("/", protect, authorizeRoles("admin"), async (req, res) => {
         ],
       });
     res.json(tickets);
-  }  catch (err) {
-  console.error(err);
-  res.status(500).json({ message: err.message });
-}
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // POST book ticket — passenger
 router.post("/", protect, async (req, res) => {
-  const { scheduleId, seatNumber } = req.body;
+  const { scheduleId, seatNumber, paymentMethod, accountNumber } = req.body;
 
   if (!scheduleId || !seatNumber) {
     return res.status(400).json({ message: "scheduleId and seatNumber are required." });
@@ -56,29 +56,19 @@ router.post("/", protect, async (req, res) => {
   }
 
   try {
-    const schedule = await Schedule.findById(scheduleId).populate("route");
+    const schedule = await Schedule.findById(scheduleId).populate("route").populate("bus");
     if (!schedule) return res.status(404).json({ message: "Schedule not found." });
-    if (schedule.availableSeats <= 0)
-      return res.status(400).json({ message: "No seats available." });
+    if (schedule.availableSeats <= 0) return res.status(400).json({ message: "No seats available." });
 
-    // ✅ Seat taken check
-    const existingSeat = await Ticket.findOne({ 
-      schedule: scheduleId, 
-      seatNumber, 
-      status: "booked" 
-    });
+    // Seat taken check
+    const existingSeat = await Ticket.findOne({ schedule: scheduleId, seatNumber, status: "booked" });
     if (existingSeat) return res.status(400).json({ message: "Seat already taken." });
 
-    // ✅ Passenger duplicate check — NEW
-    const duplicateTicket = await Ticket.findOne({
-      passenger: req.user.id,
-      schedule: scheduleId,
-      status: "booked",
-    });
-    if (duplicateTicket) {
-      return res.status(400).json({ message: "You already have a ticket for this schedule." });
-    }
+    // Duplicate passenger check
+    const duplicateTicket = await Ticket.findOne({ passenger: req.user.id, schedule: scheduleId, status: "booked" });
+    if (duplicateTicket) return res.status(400).json({ message: "You already have a ticket for this schedule." });
 
+    // Ticket uumi
     const ticket = await Ticket.create({
       passenger: req.user.id,
       schedule: scheduleId,
@@ -86,10 +76,33 @@ router.post("/", protect, async (req, res) => {
       price: schedule.route.price,
     });
 
-    await Schedule.updateOne(
-      { _id: scheduleId },
-      { $inc: { availableSeats: -1 } }
-    );
+    // Available seats hir'isi
+    await Schedule.updateOne({ _id: scheduleId }, { $inc: { availableSeats: -1 } });
+
+    // ✅ Email ergi
+    try {
+      const passenger = await User.findById(req.user.id);
+      if (passenger?.email) {
+        await sendTicketConfirmationEmail({
+          to: passenger.email,
+          passengerName: passenger.name,
+          ticketCode: ticket.ticketCode,
+          origin: schedule.route.origin,
+          destination: schedule.route.destination,
+          busNumber: schedule.bus.busNumber,
+          busType: schedule.bus.busType,
+          seatNumber,
+          departureTime: schedule.departureTime,
+          arrivalTime: schedule.arrivalTime,
+          price: schedule.route.price,
+          paymentMethod: paymentMethod || "TeleBirr",
+          accountNumber: accountNumber || "N/A",
+        });
+      }
+    } catch (emailErr) {
+      console.error("Email error:", emailErr.message);
+      // Email fail ta'us ticket booking hin dhaabnu
+    }
 
     res.status(201).json(ticket);
   } catch (err) {
@@ -109,14 +122,11 @@ router.put("/:id/cancel", protect, async (req, res) => {
     ticket.status = "cancelled";
     await ticket.save();
 
-    // Available seats dabaluu
     await Schedule.findByIdAndUpdate(ticket.schedule, { $inc: { availableSeats: 1 } });
-
     res.json({ message: "Ticket cancelled." });
-} catch (err) {
-  console.error(err);
-  res.status(500).json({ message: err.message });
-}
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 export default router;
