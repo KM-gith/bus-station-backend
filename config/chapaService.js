@@ -30,7 +30,6 @@ export const initializePayment = async ({
       first_name: firstName,
       last_name: lastName,
       tx_ref: shortTxRef,
-      callback_url: callbackUrl,
       return_url: returnUrl,
       customization: {
         title: "Bus Station",
