@@ -92,7 +92,6 @@ router.post("/initiate-payment", protect, async (req, res) => {
       firstName,
       lastName,
       txRef: shortTxRef,
-      callbackUrl: `${process.env.BACKEND_URL}/tickets/verify-payment`,
       returnUrl: `${process.env.FRONTEND_URL}/passenger?payment=success&txRef=${shortTxRef}`,
       description: `Bus ticket ${schedule.route.origin} to ${schedule.route.destination}`,
     });
