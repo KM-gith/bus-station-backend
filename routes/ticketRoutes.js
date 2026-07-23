@@ -133,5 +133,39 @@ router.put("/:id/cancel", protect, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+// POST — Seat availability check only
+router.post("/check-seat", protect, async (req, res) => {
+  const { scheduleId, seatNumber } = req.body;
+
+  if (!scheduleId || !seatNumber) {
+    return res.status(400).json({ message: "scheduleId and seatNumber are required." });
+  }
+
+  try {
+    // Seat taken check
+    const existingSeat = await Ticket.findOne({
+      schedule: scheduleId,
+      seatNumber,
+      status: "booked",
+    });
+    if (existingSeat) {
+      return res.status(400).json({ message: "Seat already taken. Please choose another seat." });
+    }
+
+    // Duplicate passenger check
+    const duplicateTicket = await Ticket.findOne({
+      passenger: req.user.id,
+      schedule: scheduleId,
+      status: "booked",
+    });
+    if (duplicateTicket) {
+      return res.status(400).json({ message: "You already have a ticket for this schedule." });
+    }
+
+    res.json({ message: "Seat available." });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 export default router;
