@@ -1,3 +1,5 @@
+import { sendTicketConfirmationEmail } from "../config/emailService.js";
+import { sendTicketConfirmationSMS } from "../config/smsService.js";
 import mongoose from "mongoose";
 import express from "express";
 import Ticket from "../models/Ticket.js";
@@ -105,6 +107,17 @@ router.post("/", protect, async (req, res) => {
           amountPaid: amount || schedule.route.price,
         });
       }
+          if (passenger?.phone) {
+        await sendTicketConfirmationSMS({
+          phone: passenger.phone,
+          route: `${schedule.route.origin} → ${schedule.route.destination}`,
+          seat: seatNumber,
+          departure: schedule.departureTime,
+          ticketCode: ticket.ticketCode,
+          amount: amount || schedule.route.price,
+        });
+      }
+      
     } catch (emailErr) {
       console.error("Email error:", emailErr.message);
     }

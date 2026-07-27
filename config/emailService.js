@@ -27,7 +27,7 @@ export const sendTicketConfirmationEmail = async ({
   }[paymentMethod] || paymentMethod;
 
   await resend.emails.send({
-    from: "Bus Station System <onboarding@resend.dev>",
+    from: "Bus Station Scheduling System <onboarding@resend.dev>",
     to,
     subject: ` Ticket Confirmed — ${origin} → ${destination}`,
     html: `
@@ -71,7 +71,7 @@ export const sendTicketConfirmationEmail = async ({
             <p>Ticket Confirmation</p>
           </div>
           <div style="padding: 20px 24px 0;">
-            <p style="color: #374151; font-size: 15px; margin:0;">Hello <strong>${passengerName}</strong>! </p>
+            <p style="color: #374151; font-size: 15px; margin:0;">Hello <strong>${passengerName}</strong>! 👋</p>
             <p style="color: #6b7280; font-size: 13px; margin: 6px 0 0;">Your ticket and payment have been confirmed. See full details below.</p>
           </div>
           <div class="ticket-code">
@@ -98,13 +98,13 @@ export const sendTicketConfirmationEmail = async ({
           <div class="payment-box">
             <h3> Payment Details</h3>
             <div class="payment-row"><span>Payment Method</span><strong>${paymentMethodLabel}</strong></div>
-            <div class="payment-row"><span>Account / Phone</span><strong style="font-family: monospace;">${accountNumber}</strong></div>
+            <div class="payment-row"><span>Account / Phone</span><strong style="font-family:monospace;">${accountNumber}</strong></div>
             <div class="payment-row"><span>Amount Paid</span><strong>ETB ${amountPaid}</strong></div>
-            <div class="payment-row"><span>Status</span><strong style="color: #16a34a;"> Confirmed</strong></div>
+            <div class="payment-row"><span>Status</span><strong style="color:#16a34a;"> Confirmed</strong></div>
           </div>
           <div class="footer">
             <p>Bus Station System — Nekemte, Ethiopia</p>
-            <p style="margin-top: 6px; color: #d1d5db;">Please do not reply to this email.</p>
+            <p style="margin-top:6px;color:#d1d5db;">Please do not reply to this email.</p>
           </div>
         </div>
       </body>
