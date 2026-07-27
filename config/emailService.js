@@ -1,12 +1,6 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const sendTicketConfirmationEmail = async ({
   to,
@@ -32,15 +26,14 @@ export const sendTicketConfirmationEmail = async ({
     coopay: "COOPay",
   }[paymentMethod] || paymentMethod;
 
-  const mailOptions = {
-    from: `"Bus Station System" <${process.env.EMAIL_USER}>`,
+  await resend.emails.send({
+    from: "Bus Station System <onboarding@resend.dev>",
     to,
-    subject: `✅ Ticket Confirmed — ${origin} → ${destination}`,
+    subject: ` Ticket Confirmed — ${origin} → ${destination}`,
     html: `
       <!DOCTYPE html>
       <html>
-      <head>
-        <meta charset="UTF-8" />
+      <head><meta charset="UTF-8" />
         <style>
           body { font-family: Arial, sans-serif; background: #f0f4ff; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 30px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
@@ -73,92 +66,49 @@ export const sendTicketConfirmationEmail = async ({
       </head>
       <body>
         <div class="container">
-
-          <!-- Header -->
           <div class="header">
-            <h1>🚌 Bus Station System</h1>
-            <p>Ticket Confirmation — Kaffaltii Raawwatameera</p>
+            <h1> Bus Station Scheduling System</h1>
+            <p>Ticket Confirmation</p>
           </div>
-
-          <!-- Greeting -->
           <div style="padding: 20px 24px 0;">
-            <p style="color: #374151; font-size: 15px; margin:0;">Nagaatti <strong>${passengerName}</strong>! 👋</p>
-            <p style="color: #6b7280; font-size: 13px; margin: 6px 0 0;">Ticket kee fi kaffaltiin dhugoomteera. Odeeffannoo guutuu armaan gadii ilaali.</p>
+            <p style="color: #374151; font-size: 15px; margin:0;">Hello <strong>${passengerName}</strong>! </p>
+            <p style="color: #6b7280; font-size: 13px; margin: 6px 0 0;">Your ticket and payment have been confirmed. See full details below.</p>
           </div>
-
-          <!-- Ticket Code -->
           <div class="ticket-code">
-            <p>Ticket Code Kee</p>
+            <p>Your Ticket Code</p>
             <h2>${ticketCode}</h2>
           </div>
-
-          <!-- Route -->
           <div class="route-box">
             <h2>${origin} → ${destination}</h2>
             <p>Bus: ${busNumber} (${busType}) | Seat No: <strong>${seatNumber}</strong></p>
           </div>
-
-          <!-- Trip Info -->
           <div class="section">
-            <h3>🗓️ Odeeffannoo Deemsa</h3>
+            <h3> Trip Information</h3>
             <div class="info-grid">
-              <div class="info-box">
-                <label>Departure</label>
-                <span>${new Date(departureTime).toLocaleString()}</span>
-              </div>
-              <div class="info-box">
-                <label>Arrival</label>
-                <span>${new Date(arrivalTime).toLocaleString()}</span>
-              </div>
-              <div class="info-box">
-                <label>Bus Number</label>
-                <span>${busNumber}</span>
-              </div>
-              <div class="info-box">
-                <label>Seat Number</label>
-                <span>${seatNumber}</span>
-              </div>
+              <div class="info-box"><label>Departure</label><span>${new Date(departureTime).toLocaleString()}</span></div>
+              <div class="info-box"><label>Arrival</label><span>${new Date(arrivalTime).toLocaleString()}</span></div>
+              <div class="info-box"><label>Bus Number</label><span>${busNumber}</span></div>
+              <div class="info-box"><label>Seat Number</label><span>${seatNumber}</span></div>
             </div>
           </div>
-
-          <!-- Price -->
           <div class="price-box">
             <span>Ticket Price</span>
             <strong>ETB ${price}</strong>
           </div>
-
-          <!-- Payment Details -->
           <div class="payment-box">
-            <h3>💳 Odeeffannoo Kaffaltii</h3>
-            <div class="payment-row">
-              <span>Karaa Kaffaltii</span>
-              <strong>${paymentMethodLabel}</strong>
-            </div>
-            <div class="payment-row">
-              <span>Account / Phone</span>
-              <strong style="font-family: monospace;">${accountNumber}</strong>
-            </div>
-            <div class="payment-row">
-              <span>Kaffalame</span>
-              <strong>ETB ${amountPaid}</strong>
-            </div>
-            <div class="payment-row">
-              <span>Status</span>
-              <strong style="color: #16a34a;">✅ Raawwatameera</strong>
-            </div>
+            <h3> Payment Details</h3>
+            <div class="payment-row"><span>Payment Method</span><strong>${paymentMethodLabel}</strong></div>
+            <div class="payment-row"><span>Account / Phone</span><strong style="font-family: monospace;">${accountNumber}</strong></div>
+            <div class="payment-row"><span>Amount Paid</span><strong>ETB ${amountPaid}</strong></div>
+            <div class="payment-row"><span>Status</span><strong style="color: #16a34a;"> Confirmed</strong></div>
           </div>
-
-          <!-- Footer -->
           <div class="footer">
             <p>Bus Station System — Nekemte, Ethiopia</p>
-            <p style="margin-top: 6px; color: #d1d5db;">Email kana irratti deebii hin ergina. Gaafii yoo qabatte admin quunnamaa.</p>
+            <p style="margin-top: 6px; color: #d1d5db;">Please do not reply to this email.</p>
           </div>
-
         </div>
       </body>
       </html>
     `,
-  };
-
-  await transporter.sendMail(mailOptions);
+  });
 };
