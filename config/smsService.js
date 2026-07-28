@@ -24,14 +24,14 @@ export const sendTicketSMS = async ({
   const formattedPhone = formatPhone(phone);
 
   const message =
-    `Bus Station System ` +
-    ` Ticket Confirmed! ` +
-    `Passenger: ${passengerName} ` +
-    `Route: ${origin} to ${destination} ` +
-    `Seat: ${seatNumber} ` +
-    `Departure: ${new Date(departureTime).toLocaleString()} ` +
-    `Ticket: ${ticketCode} ` +
-    `Amount: ETB ${price}`;
+  `Bus Station System` +
+  ` | Ticket: ${ticketCode}` +
+  ` | ${passengerName}` +
+  ` | ${origin} to ${destination}` +
+  ` | Seat: ${seatNumber}` +
+  ` | ETB ${price}` +
+  ` | Dep: ${new Date(departureTime).toLocaleString()}`;
+    
 
   const response = await axios.get(
     "https://api.afromessage.com/api/send",
