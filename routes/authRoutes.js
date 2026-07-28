@@ -7,9 +7,9 @@ const router = express.Router();
 
 // POST /auth/register
 router.post("/register", async (req, res) => {
-  const { name, email, password, role, adminCode } = req.body;
+  const { name, email, phone, password, role, adminCode } = req.body;
   try {
-    // ✅ Admin secret code check
+    // Admin secret code check
     if (role === "admin") {
       if (!adminCode || adminCode !== process.env.ADMIN_SECRET_CODE) {
         return res.status(403).json({ message: "Invalid admin code." });
@@ -20,13 +20,16 @@ router.post("/register", async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ message: "Email already registered." });
     }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({
+    await User.create({
       name,
       email,
+      phone: phone || "",
       password: hashedPassword,
       role: role || "passenger",
     });
+
     res.status(201).json({ message: "Account created successfully." });
   } catch {
     res.status(500).json({ message: "Server error. Try again." });

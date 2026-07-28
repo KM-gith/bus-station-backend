@@ -1,5 +1,3 @@
-import { sendTicketConfirmationEmail } from "../config/emailService.js";
-import { sendTicketConfirmationSMS } from "../config/smsService.js";
 import mongoose from "mongoose";
 import express from "express";
 import Ticket from "../models/Ticket.js";
@@ -7,6 +5,7 @@ import Schedule from "../models/Schedule.js";
 import User from "../models/User.js";
 import { protect, authorizeRoles } from "../middleware/authMiddleware.js";
 import { sendTicketConfirmationEmail } from "../config/emailService.js";
+import { sendTicketSMS } from "../config/smsService.js";
 
 const router = express.Router();
 
@@ -31,7 +30,7 @@ router.get("/my", protect, async (req, res) => {
 router.get("/", protect, authorizeRoles("admin"), async (req, res) => {
   try {
     const tickets = await Ticket.find()
-      .populate("passenger", "name email")
+      .populate("passenger", "name email phone")
       .populate({
         path: "schedule",
         populate: [
@@ -40,6 +39,39 @@ router.get("/", protect, authorizeRoles("admin"), async (req, res) => {
         ],
       });
     res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST check seat — before payment modal
+router.post("/check-seat", protect, async (req, res) => {
+  const { scheduleId, seatNumber } = req.body;
+
+  if (!scheduleId || !seatNumber) {
+    return res.status(400).json({ message: "scheduleId and seatNumber are required." });
+  }
+
+  try {
+    const existingSeat = await Ticket.findOne({
+      schedule: scheduleId,
+      seatNumber,
+      status: "booked",
+    });
+    if (existingSeat) {
+      return res.status(400).json({ message: "Seat already taken. Please choose another seat." });
+    }
+
+    const duplicateTicket = await Ticket.findOne({
+      passenger: req.user.id,
+      schedule: scheduleId,
+      status: "booked",
+    });
+    if (duplicateTicket) {
+      return res.status(400).json({ message: "You already have a ticket for this schedule." });
+    }
+
+    res.json({ message: "Seat available." });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -62,17 +94,14 @@ router.post("/", protect, async (req, res) => {
     if (!schedule) return res.status(404).json({ message: "Schedule not found." });
     if (schedule.availableSeats <= 0) return res.status(400).json({ message: "No seats available." });
 
-    // Seat taken check
     const existingSeat = await Ticket.findOne({ schedule: scheduleId, seatNumber, status: "booked" });
     if (existingSeat) return res.status(400).json({ message: "Seat already taken." });
 
-    // Duplicate passenger check
     const duplicateTicket = await Ticket.findOne({ passenger: req.user.id, schedule: scheduleId, status: "booked" });
     if (duplicateTicket) return res.status(400).json({ message: "You already have a ticket for this schedule." });
 
-    // Amount check
     if (amount && parseFloat(amount) < schedule.route.price) {
-      return res.status(400).json({ message: `Amount xiqqaa dha. ETB ${schedule.route.price} kaffaluu qabda.` });
+      return res.status(400).json({ message: `Amount too low. Must pay at least ETB ${schedule.route.price}.` });
     }
 
     // Ticket uumi
@@ -83,12 +112,13 @@ router.post("/", protect, async (req, res) => {
       price: schedule.route.price,
     });
 
-    // Available seats hir'isi
     await Schedule.updateOne({ _id: scheduleId }, { $inc: { availableSeats: -1 } });
 
-    // ✅ Email ergi — payment details waliin
+    // Passenger info argadhu
+    const passenger = await User.findById(req.user.id);
+
+    // ✅ Email ergi
     try {
-      const passenger = await User.findById(req.user.id);
       if (passenger?.email) {
         await sendTicketConfirmationEmail({
           to: passenger.email,
@@ -106,20 +136,31 @@ router.post("/", protect, async (req, res) => {
           accountNumber: accountNumber || "N/A",
           amountPaid: amount || schedule.route.price,
         });
+        console.log("Email sent to:", passenger.email);
       }
-          if (passenger?.phone) {
-        await sendTicketConfirmationSMS({
-          phone: passenger.phone,
-          route: `${schedule.route.origin} → ${schedule.route.destination}`,
-          seat: seatNumber,
-          departure: schedule.departureTime,
-          ticketCode: ticket.ticketCode,
-          amount: amount || schedule.route.price,
-        });
-      }
-      
     } catch (emailErr) {
       console.error("Email error:", emailErr.message);
+    }
+
+    // ✅ SMS ergi
+    try {
+      if (passenger?.phone) {
+        await sendTicketSMS({
+          phone: passenger.phone,
+          passengerName: passenger.name,
+          ticketCode: ticket.ticketCode,
+          origin: schedule.route.origin,
+          destination: schedule.route.destination,
+          seatNumber,
+          departureTime: schedule.departureTime,
+          price: schedule.route.price,
+        });
+        console.log("SMS sent to:", passenger.phone);
+      } else {
+        console.log("No phone number — SMS skipped.");
+      }
+    } catch (smsErr) {
+      console.error("SMS error:", smsErr.message);
     }
 
     res.status(201).json(ticket);
@@ -142,40 +183,6 @@ router.put("/:id/cancel", protect, async (req, res) => {
 
     await Schedule.findByIdAndUpdate(ticket.schedule, { $inc: { availableSeats: 1 } });
     res.json({ message: "Ticket cancelled." });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-// POST — Seat availability check only
-router.post("/check-seat", protect, async (req, res) => {
-  const { scheduleId, seatNumber } = req.body;
-
-  if (!scheduleId || !seatNumber) {
-    return res.status(400).json({ message: "scheduleId and seatNumber are required." });
-  }
-
-  try {
-    // Seat taken check
-    const existingSeat = await Ticket.findOne({
-      schedule: scheduleId,
-      seatNumber,
-      status: "booked",
-    });
-    if (existingSeat) {
-      return res.status(400).json({ message: "Seat already taken. Please choose another seat." });
-    }
-
-    // Duplicate passenger check
-    const duplicateTicket = await Ticket.findOne({
-      passenger: req.user.id,
-      schedule: scheduleId,
-      status: "booked",
-    });
-    if (duplicateTicket) {
-      return res.status(400).json({ message: "You already have a ticket for this schedule." });
-    }
-
-    res.json({ message: "Seat available." });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

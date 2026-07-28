@@ -1,47 +1,52 @@
-import fetch from "node-fetch";
+import axios from "axios";
 
-const AFROMESSAGE_API_URL = "https://api.afromessage.com/api/send";
-const API_KEY = process.env.AFROMESSAGE_API_KEY;
-const SENDER = process.env.AFROMESSAGE_SENDER || "BusStation";
+const AFROMESSAGE_API_KEY = process.env.AFROMESSAGE_API_KEY;
+const AFROMESSAGE_IDENTIFIER = process.env.AFROMESSAGE_IDENTIFIER;
 
-export const sendSMS = async (to, message) => {
-  try {
-    const response = await fetch(AFROMESSAGE_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: SENDER,
-        to,
+export const sendTicketSMS = async ({
+  phone,
+  passengerName,
+  ticketCode,
+  origin,
+  destination,
+  seatNumber,
+  departureTime,
+  price,
+}) => {
+  // Phone number format — Ethiopia: 09xxxxxxxx → +2519xxxxxxxx
+  const formatPhone = (num) => {
+    const cleaned = num.replace(/\D/g, "");
+    if (cleaned.startsWith("0")) return "+251" + cleaned.slice(1);
+    if (cleaned.startsWith("251")) return "+" + cleaned;
+    return "+" + cleaned;
+  };
+
+  const formattedPhone = formatPhone(phone);
+
+  const message =
+    `Bus Station System\n` +
+    `✅ Ticket Confirmed!\n` +
+    `Passenger: ${passengerName}\n` +
+    `Route: ${origin} → ${destination}\n` +
+    `Seat: ${seatNumber}\n` +
+    `Departure: ${new Date(departureTime).toLocaleString()}\n` +
+    `Ticket: ${ticketCode}\n` +
+    `Amount: ETB ${price}`;
+
+  const response = await axios.get(
+    "https://api.afromessage.com/api/send",
+    {
+      params: {
+        from: AFROMESSAGE_IDENTIFIER,
+        to: formattedPhone,
         message,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("SMS erguu dadhabe:", data);
-      return { success: false, error: data };
+      },
+      headers: {
+        Authorization: `Bearer ${AFROMESSAGE_API_KEY}`,
+      },
     }
+  );
 
-    console.log("SMS milkaa'inaan ergame:", to);
-    return { success: true, data };
-  } catch (error) {
-    console.error("SMS Service Error:", error.message);
-    return { success: false, error: error.message };
-  }
-};
-
-export const sendTicketConfirmationSMS = async (ticket) => {
-  const message = `Bus Station System
- Ticket Confirmed!
-Route: ${ticket.route}
-Seat: ${ticket.seat}
-Departure: ${ticket.departure}
-Ticket Code: ${ticket.ticketCode}
-Amount: ETB ${ticket.amount}`;
-
-  return sendSMS(ticket.phone, message);
+  console.log("SMS sent:", response.data);
+  return response.data;
 };
